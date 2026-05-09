@@ -1,19 +1,17 @@
 """
-ESG Startup Classifier — Streamlit App
-======================================
-Interactive web app that converts the Project 1 Gemini-based ESG classification
-notebook into a user-facing tool.
+ESG Startup Classifier + Trading Strategy — Streamlit App
+=========================================================
+Two-tab interactive web app:
+
+1. ESG Classifier — wraps the Project 1 Gemini-based classification notebook.
+2. ESG Trading Strategy — Moving Average crossover backtest comparing an
+   ESG-aligned ETF (default ESGU) against a broad-market benchmark (default
+   SPY). Satisfies the course-required "Moving Average Trading Strategy" task
+   while keeping the ESG theme.
 
 Run:
     pip install -r requirements.txt
-    export GOOGLE_API_KEY=your_key_here   # or set in Windows: set GOOGLE_API_KEY=...
     streamlit run app.py
-
-The app supports two input modes (single firm or CSV upload), a configurable
-strictness level, batch size, confidence threshold, and produces a results
-table, summary cards, charts, and (when ground truth is available) accuracy /
-precision / recall / F1 / confusion-matrix metrics with false positive and
-false negative review sections.
 """
 
 from __future__ import annotations
@@ -22,8 +20,10 @@ import io
 import json
 import os
 import time
+from datetime import date, timedelta
 from typing import List, Dict, Any, Tuple
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -553,13 +553,15 @@ def sidebar_settings() -> Dict[str, Any]:
 
 
 def header_section() -> None:
-    st.title("ESG Startup Classifier")
+    st.title("ESG Startup Classifier + Trading Strategy")
     st.write(
-        "Decide whether a startup's core business is directly tied to "
-        "**Environmental, Social, or Governance** outcomes — or whether it's a "
-        "general business with positive-sounding language. Enter a single firm "
-        "or upload a CSV, tune the strictness, and review the model's decisions, "
-        "confidence, and (when ground truth is provided) classification metrics."
+        "Two tools in one app. **ESG Classifier**: decide whether a startup's "
+        "core business is directly tied to Environmental, Social, or Governance "
+        "outcomes using Gemini-2.5-Flash on free-text descriptions. **ESG "
+        "Trading Strategy**: backtest a moving-average crossover on an "
+        "ESG-aligned ETF (default ESGU) versus a broad-market benchmark "
+        "(default SPY) to test whether ESG investing has held up under a "
+        "simple momentum rule."
     )
 
 
@@ -629,10 +631,7 @@ def input_section() -> Tuple[pd.DataFrame | None, str]:
     return df, source
 
 
-def main() -> None:
-    settings = sidebar_settings()
-    header_section()
-
+def classifier_tab(settings: Dict[str, Any]) -> None:
     st.markdown("### 1. Provide input")
     df_input, source = input_section()
 
@@ -740,6 +739,285 @@ def main() -> None:
 
         st.markdown("### 7. Insights")
         render_decision_insight(df_results, metrics)
+
+
+# ============================================================================
+# ESG Trading Strategy tab — Moving Average crossover backtest
+# ============================================================================
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
+    """Pulls Close prices via yfinance. Returns a single-column 'close' DataFrame."""
+    import yfinance as yf
+
+    df = yf.download(
+        ticker,
+        start=start,
+        end=end,
+        progress=False,
+        auto_adjust=True,
+    )
+    if df is None or df.empty:
+        raise ValueError(f"No price data returned for ticker '{ticker}'.")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    if "Close" not in df.columns:
+        raise ValueError(f"Unexpected response shape for '{ticker}': {list(df.columns)}")
+    return df[["Close"]].rename(columns={"Close": "close"}).dropna()
+
+
+def compute_ma_signals(prices: pd.DataFrame, short: int, long: int) -> pd.DataFrame:
+    """Adds short/long SMA, position, daily return, strategy return, equity curves."""
+    if short >= long:
+        raise ValueError("Short MA window must be smaller than long MA window.")
+    df = prices.copy()
+    df["sma_short"] = df["close"].rolling(short).mean()
+    df["sma_long"] = df["close"].rolling(long).mean()
+    df["signal"] = (df["sma_short"] > df["sma_long"]).astype(int)
+    # Position is yesterday's signal — we can only act on signals after they form.
+    df["position"] = df["signal"].shift(1).fillna(0)
+    df["daily_ret"] = df["close"].pct_change().fillna(0.0)
+    df["strategy_ret"] = df["position"] * df["daily_ret"]
+    df["equity_strategy"] = (1.0 + df["strategy_ret"]).cumprod()
+    df["equity_bh"] = (1.0 + df["daily_ret"]).cumprod()
+    df["trade"] = df["position"].diff().fillna(0)
+    return df
+
+
+def backtest_metrics(df: pd.DataFrame, capital: float) -> Dict[str, float]:
+    """Computes total return, CAGR, Sharpe, max drawdown, # trades, final equity."""
+    eq = df["equity_strategy"]
+    if eq.empty:
+        return {}
+    total_ret = float(eq.iloc[-1] - 1)
+    days = len(df)
+    cagr = float(eq.iloc[-1] ** (252.0 / max(days, 1)) - 1) if days > 0 else 0.0
+    daily = df["strategy_ret"]
+    sharpe = float((daily.mean() / daily.std()) * np.sqrt(252)) if daily.std() > 0 else 0.0
+    peak = eq.cummax()
+    dd = (eq - peak) / peak
+    max_dd = float(dd.min()) if not dd.empty else 0.0
+    n_trades = int((df["trade"].abs() > 0).sum())
+    bh_ret = float(df["equity_bh"].iloc[-1] - 1)
+    return {
+        "total_return": total_ret,
+        "cagr": cagr,
+        "sharpe": sharpe,
+        "max_drawdown": max_dd,
+        "n_trades": n_trades,
+        "final_equity": float(capital * eq.iloc[-1]),
+        "buy_hold_return": bh_ret,
+    }
+
+
+def render_strategy_chart(df: pd.DataFrame, ticker: str, short: int, long: int) -> None:
+    """Price + MAs + buy/sell markers."""
+    buys = df[df["trade"] > 0]
+    sells = df[df["trade"] < 0]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["close"], name="Close", line=dict(color="#37474F", width=1.5)))
+    fig.add_trace(go.Scatter(x=df.index, y=df["sma_short"], name=f"SMA {short}", line=dict(color="#1976D2", width=1)))
+    fig.add_trace(go.Scatter(x=df.index, y=df["sma_long"], name=f"SMA {long}", line=dict(color="#E53935", width=1)))
+    fig.add_trace(go.Scatter(
+        x=buys.index, y=buys["close"], mode="markers", name="Buy",
+        marker=dict(symbol="triangle-up", color="#2E7D32", size=10),
+    ))
+    fig.add_trace(go.Scatter(
+        x=sells.index, y=sells["close"], mode="markers", name="Sell",
+        marker=dict(symbol="triangle-down", color="#C62828", size=10),
+    ))
+    fig.update_layout(
+        title=f"{ticker} — price, MA crossover signals",
+        height=360,
+        margin=dict(l=10, r=10, t=40, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_equity_curves(esg_df: pd.DataFrame, bench_df: pd.DataFrame, esg_t: str, bench_t: str) -> None:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=esg_df.index, y=esg_df["equity_strategy"], name=f"{esg_t} MA strategy", line=dict(color="#2E7D32", width=2)))
+    fig.add_trace(go.Scatter(x=esg_df.index, y=esg_df["equity_bh"], name=f"{esg_t} buy & hold", line=dict(color="#2E7D32", width=1, dash="dot")))
+    fig.add_trace(go.Scatter(x=bench_df.index, y=bench_df["equity_strategy"], name=f"{bench_t} MA strategy", line=dict(color="#1565C0", width=2)))
+    fig.add_trace(go.Scatter(x=bench_df.index, y=bench_df["equity_bh"], name=f"{bench_t} buy & hold", line=dict(color="#1565C0", width=1, dash="dot")))
+    fig.update_layout(
+        title="Equity curves (growth of $1)",
+        height=380,
+        margin=dict(l=10, r=10, t=40, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def trading_decision_insight(esg_m: Dict[str, float], bench_m: Dict[str, float], esg_t: str, bench_t: str) -> None:
+    bullets: List[str] = []
+    esg_strat_vs_bh = esg_m["total_return"] - esg_m["buy_hold_return"]
+    bench_strat_vs_bh = bench_m["total_return"] - bench_m["buy_hold_return"]
+
+    if esg_strat_vs_bh > 0:
+        bullets.append(f"On {esg_t}, the MA strategy beat buy-and-hold by {esg_strat_vs_bh*100:.1f} percentage points.")
+    else:
+        bullets.append(f"On {esg_t}, the MA strategy underperformed buy-and-hold by {-esg_strat_vs_bh*100:.1f} percentage points — typical of MA crossovers in trending markets.")
+
+    if esg_m["total_return"] > bench_m["total_return"]:
+        bullets.append(f"The ESG strategy ({esg_t}) returned {esg_m['total_return']*100:.1f}% vs the benchmark's {bench_m['total_return']*100:.1f}% — ESG outperformed over this window.")
+    else:
+        bullets.append(f"The ESG strategy ({esg_t}) returned {esg_m['total_return']*100:.1f}% vs the benchmark's {bench_m['total_return']*100:.1f}% — the benchmark outperformed over this window.")
+
+    if esg_m["max_drawdown"] > bench_m["max_drawdown"]:
+        bullets.append(f"ESG had a shallower max drawdown ({esg_m['max_drawdown']*100:.1f}% vs {bench_m['max_drawdown']*100:.1f}%) — lower downside risk.")
+    else:
+        bullets.append(f"ESG had a deeper max drawdown ({esg_m['max_drawdown']*100:.1f}% vs {bench_m['max_drawdown']*100:.1f}%).")
+
+    if esg_m["sharpe"] > bench_m["sharpe"]:
+        bullets.append(f"ESG had a higher Sharpe ({esg_m['sharpe']:.2f} vs {bench_m['sharpe']:.2f}) — better risk-adjusted return.")
+
+    bullets.append(f"Total trades: {esg_t}={esg_m['n_trades']}, {bench_t}={bench_m['n_trades']}. Many trades implies higher transaction costs that this backtest does not include.")
+
+    st.markdown("### Decision insight")
+    for b in bullets:
+        st.markdown(f"- {b}")
+
+
+def trading_tab() -> None:
+    st.markdown(
+        "### Moving Average crossover backtest"
+    )
+    st.write(
+        "Backtest a classic MA crossover strategy on an ESG-aligned ETF and "
+        "compare it head-to-head with a broad-market benchmark. Go long when "
+        "the short SMA is above the long SMA; otherwise hold cash. The chart "
+        "marks every buy and sell signal so you can sanity-check the logic."
+    )
+
+    c1, c2 = st.columns(2)
+    esg_ticker = c1.text_input(
+        "ESG ticker",
+        value="ESGU",
+        help="Default: iShares ESG Aware MSCI USA ETF. Other options: SUSA, ICLN, ESGV.",
+    )
+    bench_ticker = c2.text_input(
+        "Benchmark ticker",
+        value="SPY",
+        help="Default: SPDR S&P 500 ETF.",
+    )
+
+    c3, c4 = st.columns(2)
+    short_window = c3.slider("Short MA window (days)", 5, 100, 50, step=5)
+    long_window = c4.slider("Long MA window (days)", 50, 300, 200, step=10)
+
+    today = date.today()
+    default_start = today - timedelta(days=365 * 5)
+    c5, c6 = st.columns(2)
+    start_d = c5.date_input("Start date", value=default_start, max_value=today)
+    end_d = c6.date_input("End date", value=today, max_value=today)
+
+    capital = st.number_input(
+        "Initial capital ($)", min_value=100.0, value=10_000.0, step=1000.0
+    )
+
+    run_bt = st.button("Run backtest", type="primary")
+
+    if run_bt:
+        if short_window >= long_window:
+            st.error("Short MA window must be smaller than long MA window.")
+            return
+        if start_d >= end_d:
+            st.error("Start date must be before end date.")
+            return
+
+        try:
+            with st.spinner("Fetching prices..."):
+                esg_prices = fetch_prices(esg_ticker.strip().upper(), str(start_d), str(end_d))
+                bench_prices = fetch_prices(bench_ticker.strip().upper(), str(start_d), str(end_d))
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not fetch prices: {exc}")
+            return
+
+        try:
+            esg_df = compute_ma_signals(esg_prices, short_window, long_window)
+            bench_df = compute_ma_signals(bench_prices, short_window, long_window)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Backtest error: {exc}")
+            return
+
+        st.session_state["bt"] = {
+            "esg_df": esg_df,
+            "bench_df": bench_df,
+            "esg_t": esg_ticker.upper(),
+            "bench_t": bench_ticker.upper(),
+            "short": short_window,
+            "long": long_window,
+            "capital": capital,
+        }
+
+    if "bt" in st.session_state:
+        bt = st.session_state["bt"]
+        esg_df, bench_df = bt["esg_df"], bt["bench_df"]
+        esg_t, bench_t = bt["esg_t"], bt["bench_t"]
+        capital = bt["capital"]
+
+        esg_metrics = backtest_metrics(esg_df, capital)
+        bench_metrics = backtest_metrics(bench_df, capital)
+
+        st.markdown("#### Performance summary")
+        summary = pd.DataFrame(
+            {
+                esg_t: [
+                    f"{esg_metrics['total_return']*100:.2f}%",
+                    f"{esg_metrics['cagr']*100:.2f}%",
+                    f"{esg_metrics['sharpe']:.2f}",
+                    f"{esg_metrics['max_drawdown']*100:.2f}%",
+                    esg_metrics["n_trades"],
+                    f"${esg_metrics['final_equity']:,.0f}",
+                    f"{esg_metrics['buy_hold_return']*100:.2f}%",
+                ],
+                bench_t: [
+                    f"{bench_metrics['total_return']*100:.2f}%",
+                    f"{bench_metrics['cagr']*100:.2f}%",
+                    f"{bench_metrics['sharpe']:.2f}",
+                    f"{bench_metrics['max_drawdown']*100:.2f}%",
+                    bench_metrics["n_trades"],
+                    f"${bench_metrics['final_equity']:,.0f}",
+                    f"{bench_metrics['buy_hold_return']*100:.2f}%",
+                ],
+            },
+            index=[
+                "Strategy total return",
+                "Strategy CAGR",
+                "Sharpe (strategy)",
+                "Max drawdown (strategy)",
+                "Number of trades",
+                "Final equity",
+                "Buy & hold return",
+            ],
+        )
+        st.dataframe(summary, use_container_width=True)
+
+        st.markdown("#### Price + MA crossover signals")
+        render_strategy_chart(esg_df, esg_t, bt["short"], bt["long"])
+        render_strategy_chart(bench_df, bench_t, bt["short"], bt["long"])
+
+        st.markdown("#### Equity curves")
+        render_equity_curves(esg_df, bench_df, esg_t, bench_t)
+
+        trading_decision_insight(esg_metrics, bench_metrics, esg_t, bench_t)
+
+
+# ============================================================================
+# Top-level entry
+# ============================================================================
+
+def main() -> None:
+    settings = sidebar_settings()
+    header_section()
+
+    tab_class, tab_strat = st.tabs(["ESG Classifier", "ESG Trading Strategy"])
+    with tab_class:
+        classifier_tab(settings)
+    with tab_strat:
+        trading_tab()
 
 
 if __name__ == "__main__":

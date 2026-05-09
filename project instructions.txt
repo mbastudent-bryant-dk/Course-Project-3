@@ -1,0 +1,83 @@
+Course Project 3 Instructions
+In this project, you will transform your previous Python-based analysis in Project One into an interactive, user-facing product using vibe coding tools.
+
+You can choose any one of the three tasks (52 high/low trading strategy, retirement simulation, or moving average trading strategy)
+
+Your goal is no longer just to "run code”. Instead, you will build a simple application that other people can access and explore.
+
+Objective
+You will take one of your previous mini projects and convert it into a fully interactive web-based tool where users can:
+
+Input assumptions
+Experiment with different scenarios
+Instantly see results and insights
+Think of this as turning your assignment into a real financial decision tool or simulation app.
+
+Core Requirements
+Your app must include the following:
+
+1. User Interaction (Required)
+Users must be able to change key inputs.
+
+Examples:
+
+Retirement project: contribution amount, return assumption, retirement age
+Trading project: moving average windows, holding period, time range
+2. Real-Time Output
+Your app should immediately update results when inputs change.
+
+Examples:
+
+Final wealth or probability of retirement success
+Trading returns, number of trades, risk metrics
+3. Visualization (Strongly Recommended)
+Use charts to help users understand results.
+
+Examples:
+
+Wealth over time
+Buy/sell signals on price charts
+Distribution of outcomes (for simulations)
+4. Decision Insight (Very Important)
+Your app should help users answer a question, not just display numbers.
+
+Examples:
+
+“Will I reach my retirement goal?”
+“Which trading strategy performs better?”
+“How sensitive are results to my assumptions?”
+5. Clean and Simple Interface
+Clear labels
+Easy-to-understand inputs
+Organized layout
+No unnecessary complexity
+Vibe Coding Tools
+You may use tools such as:
+
+Claude Code
+Google AI Studio
+Or other vibe coding tools
+What to Submit
+The Design Document (1–2 paragraphs) explaining:
+What your app does
+What inputs you 
+What decision/problem it helps solve
+The structure of the app
+A short video of demostraction (5 - 10 minutes)
+Live App Link (or runnable app)
+Evaluation Criteria
+Your project will be evaluated based on:
+
+The Design Document (the most improtant)
+The App
+Functionality (Does it work correctly?)
+Interactivity (Can users explore different scenarios?)
+Clarity (Is it easy to understand?)
+Usefulness (Does it provide meaningful insight?)
+Important Note
+This is not a front-end design competition.
+Focus on:
+
+making your model usable
+helping users learn something
+translating financial logic into decisions

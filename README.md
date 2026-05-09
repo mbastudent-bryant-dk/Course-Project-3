@@ -1,14 +1,22 @@
-# ESG Startup Classifier
+# ESG Startup Classifier + Trading Strategy
 
-An interactive Streamlit web app that converts the Project 1 Gemini-based ESG classification notebook into a user-facing tool. The app classifies whether a startup's core business is directly related to **Environmental, Social, or Governance (ESG)** themes, using Google's `gemini-2.5-flash` model.
+An interactive Streamlit web app with **two tabs** that fulfills the Project 3 vibe-coding requirement (Moving Average Trading Strategy task) while preserving the ESG analysis from Project 1.
 
 ## What the app does
 
+### Tab 1 — ESG Classifier
 - Lets users classify a single firm or upload a CSV of firm descriptions.
-- Sends batches of descriptions to Gemini using a strict ESG analyst prompt.
+- Sends batches of descriptions to Gemini-2.5-Flash using a strict ESG analyst prompt.
 - Returns label, confidence, category, and a one-sentence explanation per firm.
 - When ground-truth labels are present (`esg_dummy` column), it computes accuracy, precision, recall, F1, and a confusion matrix, and lists false positives / negatives.
 - Renders interactive charts (ESG vs. non-ESG, category breakdown, confidence distribution) and a plain-English insight panel.
+
+### Tab 2 — ESG Trading Strategy (Moving Average crossover)
+- Pulls historical prices for any two tickers via `yfinance` (default: **ESGU** vs **SPY**).
+- Backtests a classic SMA crossover: long when short SMA > long SMA, otherwise cash.
+- User-tunable inputs: ticker symbols, short/long MA windows, date range, initial capital.
+- Outputs: side-by-side performance summary (total return, CAGR, Sharpe, max drawdown, # trades, final equity, buy & hold return), price chart with buy/sell markers, equity curves comparing strategy vs. buy-and-hold for both tickers, and a plain-English decision insight panel.
+- Decision question: "Has an ESG-aligned ETF held up against the broad market under a simple momentum rule, and is the strategy worth running over buy-and-hold?"
 
 ## Decision question
 

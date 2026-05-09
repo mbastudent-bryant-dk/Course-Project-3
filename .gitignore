@@ -1,0 +1,28 @@
+# --- Streamlit secrets (NEVER commit) ---------------------------------------
+.streamlit/secrets.toml
+.streamlit/secrets.toml.example
+
+# --- Local config / API keys ------------------------------------------------
+.env
+.env.*
+*.key
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# --- IDEs / OS --------------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Streamlit cache --------------------------------------------------------
+.streamlit/cache/

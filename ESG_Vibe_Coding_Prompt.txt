@@ -1,0 +1,81 @@
+
+Build a simple interactive web app for an ESG Startup Classification Tool. The app should convert an existing Python notebook workflow into a user-facing product. Do not make it overly complex or turn it into a front-end design competition; focus on making the model usable and helping users learn something from the classification results.
+
+PROJECT GOAL
+Create a web-based tool where a user can enter or upload startup business descriptions, run an ESG classification model, and immediately see whether each startup is likely ESG-related. The app should help answer this decision question: “Is this startup’s core business directly related to Environmental, Social, or Governance themes, or is it just a general business/technology company with positive wording?”
+
+CORE LOGIC TO REUSE FROM MY PYTHON NOTEBOOK
+The current notebook uses pandas to load startup firm descriptions from a CSV, sends batches of descriptions to Gemini 2.5 Flash through the Google GenAI client, applies a strict ESG system prompt, expects a JSON array response, parses the JSON into a dataframe, compares predictions against a ground-truth column when available, and reports accuracy, precision, recall, F1 score, confusion matrix, false positives, and false negatives.
+
+DATA INPUTS
+Support two modes:
+1. Manual single-startup mode: user enters a firm ID and business description.
+2. CSV upload mode: user uploads a CSV with columns such as firm_id, bus_description, and optionally esg_dummy if ground-truth labels exist.
+
+USER-CONTROLLABLE INPUTS
+Create clear controls for:
+- Model/provider settings placeholder, but keep API keys secure in environment variables.
+- Batch size for CSV classification, default 10.
+- Strictness mode: Conservative, Balanced, or Inclusive.
+- Confidence threshold for flagging uncertain classifications.
+- Optional toggle to show explanations.
+- Optional toggle to evaluate against ground truth if the uploaded CSV contains esg_dummy.
+
+ESG CLASSIFICATION RULES
+Use this system behavior:
+You are a strict ESG classification analyst. Classify a startup as ESG only when its core product or service directly relates to Environmental, Social, or Governance themes.
+Environmental includes direct reduction of pollution, resource conservation, clean energy, energy efficiency, sustainable alternatives to harmful products, waste/water infrastructure, or ecosystem protection.
+Social includes direct expansion of essential services to underserved populations, reduction of systemic inequality, or work addressing poverty, housing, education gaps, or access barriers.
+Governance includes corporate transparency, anti-corruption, ethical compliance, accountability, auditing, or governance-risk controls.
+Generic SaaS, analytics, marketplaces, regular medical devices, wellness products, civic engagement tools, workplace tools, charitable giving platforms, or companies with vague positive impact language should not count unless the core business specifically targets an ESG problem. If uncertain, default to non-ESG.
+
+OUTPUT FORMAT FROM MODEL
+The model should return only valid JSON with this structure:
+[
+  {
+    "firm_id": "provided firm id",
+    "label": 0 or 1,
+    "confidence": 0.0 to 1.0,
+    "category": "Environmental, Social, Governance, Mixed, or Non-ESG",
+    "explanation": "one clear sentence explaining the decision"
+  }
+]
+
+APP OUTPUTS
+Show:
+- A results table with firm_id, description preview, ESG label, ESG category, confidence, and one-sentence explanation.
+- A summary card showing total firms classified, number ESG, number non-ESG, percentage ESG, and number of low-confidence results.
+- If ground truth exists, show accuracy, precision, recall, F1 score, and a simple confusion matrix.
+- Separate expandable sections for false positives and false negatives to help the user understand model mistakes.
+
+VISUALIZATIONS
+Include simple charts:
+- Bar chart showing ESG vs. non-ESG counts.
+- Bar or pie chart showing Environmental/Social/Governance/Non-ESG category distribution.
+- If confidence scores are available, show a confidence distribution chart.
+- If ground truth exists, show a confusion matrix visualization.
+
+DECISION INSIGHT
+Include a plain-English insight panel that interprets the result. Examples:
+- “Most of the uploaded startups are non-ESG because their descriptions describe general software or marketplace tools rather than direct ESG outcomes.”
+- “The model is missing some possible ESG firms, so review the false negatives before using the results for a final decision.”
+- “Low-confidence firms should be manually reviewed because the business description is vague.”
+
+INTERFACE STRUCTURE
+Use a clean layout:
+1. Header: ESG Startup Classifier
+2. Short explanation of what the app does
+3. Input section with manual entry and CSV upload tabs
+4. Settings panel for batch size, strictness, confidence threshold, and explanation toggle
+5. Run Classification button
+6. Results summary cards
+7. Charts section
+8. Results table
+9. Evaluation section if ground-truth labels are present
+10. False Positive / False Negative review section
+
+TECHNICAL REQUIREMENTS
+Use Python-friendly web app tooling such as Streamlit unless another simple stack is easier. Keep the app runnable locally. Use environment variables or a secrets file for API keys and do not hard-code keys. Validate uploaded CSV columns. Handle JSON parsing failures by marking that row or batch as an error instead of crashing. Keep the code organized into functions such as load_data, build_prompt, classify_batch, parse_response, calculate_metrics, and render_dashboard.
+
+IMPORTANT BOUNDARIES
+Do not overbuild the app. Do not add unnecessary login systems, databases, or complicated styling. The goal is a clear class project tool that turns the previous Python analysis into an interactive product with inputs, immediate outputs, charts, and decision insight.
